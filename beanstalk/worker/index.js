@@ -1,38 +1,33 @@
+const express = require('express');
 const AWS = require('aws-sdk');
-const sqs = new AWS.SQS({ region: 'us-east-1' });
+
+const app = express();
 const s3 = new AWS.S3({ region: 'us-east-1' });
 
-const QUEUE_URL = process.env.SQS_QUEUE_URL;
 const BUCKET = process.env.S3_BUCKET;
 
-async function pollQueue() {
-    const res = await sqs.receiveMessage({
-        QueueUrl: QUEUE_URL,
-        MaxNumberOfMessages: 1,
-        WaitTimeSeconds: 20
-    }).promise();
+app.use(express.json());
 
-    if (res.Messages) {
-        for (const message of res.Messages) {
-            const payload = JSON.parse(message.Body);
-            const timestamp = new Date().toISOString();
-            const key = `msg-${timestamp}.json`;
+app.post('/', async (req, res) => {
+    try {
+        const payload = req.body;
+        const timestamp = new Date().toISOString();
+        const key = `msg-${timestamp}.json`;
 
-            await s3.putObject({
-                Bucket: BUCKET,
-                Key: key,
-                Body: JSON.stringify({ receivedAt: timestamp, payload }),
-                ContentType: 'application/json'
-            }).promise();
+        await s3.putObject({
+            Bucket: BUCKET,
+            Key: key,
+            Body: JSON.stringify({ receivedAt: timestamp, payload }),
+            ContentType: 'application/json'
+        }).promise();
 
-            await sqs.deleteMessage({
-                QueueUrl: QUEUE_URL,
-                ReceiptHandle: message.ReceiptHandle
-            }).promise();
-
-            console.log(`Processed and deleted message: ${key}`);
-        }
+        console.log(`Stored message: ${key}`);
+        res.status(200).send('OK');
+    } catch (err) {
+        console.error('Error processing message:', err);
+        res.status(500).send('Failed to process');
     }
-}
+});
 
-setInterval(pollQueue, 5000);
+const PORT = process.env.PORT || 80;
+app.listen(PORT, () => console.log(`Worker app listening on port ${PORT}`));
